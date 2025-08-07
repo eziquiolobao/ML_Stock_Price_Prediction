@@ -33,6 +33,8 @@ tf.random.set_seed(42)
 # =====================
 # Fetch historical stock data for the last 5 years using yfinance
 df = yf.download(TICKER, period="5y")
+df.to_csv(f"{TICKER}_historical_data.csv")
+print(f"Saved historical data to {TICKER}_historical_data.csv")
 
 # =====================
 # Feature Engineering
