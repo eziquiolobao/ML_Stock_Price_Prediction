@@ -108,7 +108,14 @@ num_features = X_train.shape[2]
 # =====================
 def create_sequences(data, lookback, horizon):
     X, y_dir, y_forecast = [], [], []
-    close_idx = list(features.columns).index("Close")
+    # Find the index of the 'Close' column, supporting both single and MultiIndex columns
+    close_idx = None
+    for idx, col in enumerate(features.columns):
+        if (isinstance(col, tuple) and col[0] == "Close") or (col == "Close"):
+            close_idx = idx
+            break
+    if close_idx is None:
+        raise ValueError("'Close' column not found in features.columns")
     for i in range(lookback, len(data) - horizon):
         X.append(data[i - lookback:i])
         # Direction label: 1 if next day's close > today's close, else 0
@@ -121,6 +128,18 @@ def create_sequences(data, lookback, horizon):
         np.array(y_dir),
         np.array(y_forecast),
     )
+
+# Create all sequences from the full normalized feature set
+all_scaled = feature_scaler.transform(features)
+X_all, y_dir_all, y_forecast_all = create_sequences(all_scaled, LOOKBACK, FORECAST_HORIZON)
+
+# Split into train/val sets (80/20 split, matching earlier logic)
+split_idx = int(len(X_all) * 0.8)
+x_train, x_val = X_all[:split_idx], X_all[split_idx:]
+y_dir_train, y_dir_val = y_dir_all[:split_idx], y_dir_all[split_idx:]
+y_forecast_train, y_forecast_val = y_forecast_all[:split_idx], y_forecast_all[split_idx:]
+
+print("Sequences created.")
 
 # Create all sequences from the full normalized feature set
 all_scaled = feature_scaler.transform(features)
