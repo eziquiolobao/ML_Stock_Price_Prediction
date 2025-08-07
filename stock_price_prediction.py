@@ -78,8 +78,10 @@ train_features = features.iloc[:training_data_len]
 test_features = features.iloc[training_data_len - LOOKBACK:]
 
 # Scale features using MinMaxScaler fitted on training data only
+
+# Fit the scaler on the entire dataset to avoid distribution shift issues
 feature_scaler = MinMaxScaler()
-feature_scaler.fit(train_features)
+feature_scaler.fit(features)
 train_scaled = feature_scaler.transform(train_features)
 test_scaled = feature_scaler.transform(test_features)
 
@@ -157,19 +159,44 @@ actual_prices = price_scaler.inverse_transform(y_test.reshape(-1, 1))
 # =====================
 # Evaluate model performance
 # =====================
+
+# LSTM model metrics
 rmse = np.sqrt(mean_squared_error(actual_prices, predictions))
 mae = mean_absolute_error(actual_prices, predictions)
 r2 = r2_score(actual_prices, predictions)
 print(f"Root Mean Squared Error (RMSE): {rmse:.2f}")
 print(f"Mean Absolute Error (MAE): {mae:.2f}")
-print(f"R\u00b2 Score: {r2:.2f}")
+print(f"R² Score: {r2:.2f}")
+
+# Naive baseline: last value prediction
+naive_preds = valid['Close'].shift(1).dropna().values
+naive_actuals = valid['Close'].iloc[1:].values
+naive_rmse = np.sqrt(mean_squared_error(naive_actuals, naive_preds))
+naive_mae = mean_absolute_error(naive_actuals, naive_preds)
+naive_r2 = r2_score(naive_actuals, naive_preds)
+print("\nNaive Baseline (Last Value) Results:")
+print(f"RMSE: {naive_rmse:.2f}")
+print(f"MAE: {naive_mae:.2f}")
+print(f"R² Score: {naive_r2:.2f}")
 
 # =====================
 # Visualize results
 # =====================
+
 train = features[["Close"]][:training_data_len]
 valid = features[["Close"]][training_data_len:].copy()
 valid["Predictions"] = predictions
+
+# Naive baseline: last value prediction
+naive_preds = valid['Close'].shift(1).dropna().values
+naive_actuals = valid['Close'].iloc[1:].values
+naive_rmse = np.sqrt(mean_squared_error(naive_actuals, naive_preds))
+naive_mae = mean_absolute_error(naive_actuals, naive_preds)
+naive_r2 = r2_score(naive_actuals, naive_preds)
+print("\nNaive Baseline (Last Value) Results:")
+print(f"RMSE: {naive_rmse:.2f}")
+print(f"MAE: {naive_mae:.2f}")
+print(f"R² Score: {naive_r2:.2f}")
 
 plt.figure(figsize=(14, 5))
 plt.plot(train.index, train['Close'], label='Training Data')
