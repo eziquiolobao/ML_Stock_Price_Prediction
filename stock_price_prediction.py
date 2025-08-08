@@ -1,15 +1,3 @@
-"""Stock Price Prediction Script with Enhanced Features and Evaluation.
-
-This standalone script downloads historical OHLCV data, engineers a rich set of
-technical indicators, trains a multi-task deep learning model (direction
-classification + multi-step forecasting), and evaluates against naïve
-baselines.  Optional walk‑forward evaluation is provided.
-
-Configuration is done at the top of the file.  The script emphasises
-reproducibility, no data leakage, balanced multi-task losses and clear
-visualisation/logging.
-"""
-
 # ===============================================================
 # 1) Imports & Global Settings
 # ===============================================================
@@ -90,10 +78,18 @@ def download_and_engineer(ticker: str) -> pd.DataFrame:
     df["MACD"] = df["EMA12"] - df["EMA26"]
     df["MACD_SIGNAL"] = df["MACD"].ewm(span=9, adjust=False).mean()
 
-    # Bollinger Bands
-    df["MA20"] = df["Close"].rolling(20).mean()
-    df["BB_UPPER"] = df["MA20"] + 2 * df["Close"].rolling(20).std()
-    df["BB_LOWER"] = df["MA20"] - 2 * df["Close"].rolling(20).std()
+    # Bollinger Bands (ensure Series, avoid DataFrame assignment)
+    roll = df["Close"].rolling(window=20, min_periods=20)
+    ma20 = roll.mean()
+    std20 = roll.std()
+    # If yfinance returns a MultiIndex frame and .rolling() yields a DataFrame, squeeze to Series
+    if isinstance(ma20, pd.DataFrame):
+        ma20 = ma20.iloc[:, 0]
+    if isinstance(std20, pd.DataFrame):
+        std20 = std20.iloc[:, 0]
+    df["MA20"] = ma20.to_numpy()
+    df["BB_UPPER"] = (ma20 + 2 * std20).to_numpy()
+    df["BB_LOWER"] = (ma20 - 2 * std20).to_numpy()
 
     # ATR
     prev_close = df["Close"].shift(1)
@@ -313,7 +309,14 @@ def train_model(model: Model, X_train, y_dir_train, y_fore_train, X_val, y_dir_v
 # 10) Post-processing Utilities
 # ===============================================================
 def logrets_to_prices(start_price: float, logrets: np.ndarray) -> np.ndarray:
-    """Convert log-returns to a price path."""
+    """Convert log-returns to a price path.
+    Forces start_price to a scalar float and logrets to a 1-D NumPy array
+    to avoid pandas alignment/shape issues.
+    """
+    # Coerce start_price to a plain scalar float (handles 0-d arrays / 1-len Series)
+    start_price = float(np.asarray(start_price).reshape(-1)[0])
+    # Ensure 1-D numpy array of floats
+    logrets = np.asarray(logrets, dtype=float).reshape(-1)
     cumulative = np.exp(np.cumsum(logrets))
     return start_price * cumulative
 
@@ -359,16 +362,18 @@ def evaluate(
     print(f"Forecast MAE: {mae:.2f}")
     print(f"Forecast R2: {r2:.2f}")
 
-    # Baselines
-    last_close = val_df["Close"].iloc[LOOKBACK - 1 : -(FORECAST_HORIZON)].to_numpy()
+    # Baselines (align lengths with model sequences)
+    n_seq = len(fore_pred)  # number of validation sequences predicted by the model
+    start_idx = LOOKBACK - 1
+    last_close = val_df["Close"].iloc[start_idx : start_idx + n_seq].to_numpy()
     baseline_hold = np.repeat(last_close[:, None], FORECAST_HORIZON, axis=1)
 
-    mean_logret = val_df["LOGRET1"].iloc[: len(val_df) - FORECAST_HORIZON].mean()
-    baseline_drift = []
-    for price in last_close:
-        drift_path = logrets_to_prices(price, np.full(FORECAST_HORIZON, mean_logret))
-        baseline_drift.append(drift_path)
-    baseline_drift = np.array(baseline_drift)
+    # Mean log-return estimated from the same period covered by last_close anchors
+    mean_logret = val_df["LOGRET1"].iloc[: start_idx + n_seq].mean()
+    baseline_drift = np.array([
+        logrets_to_prices(price, np.full(FORECAST_HORIZON, mean_logret))
+        for price in last_close
+    ])
 
     for name, base in {
         "Hold": baseline_hold,
